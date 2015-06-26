@@ -24,13 +24,13 @@ dirs:
 	mkdir -p obj
 	mkdir -p bin
 
-tags: *.c
-	ctags *.c
+tags: src/*.c
+	ctags src/*.c
 
 bin/%.out: obj/%.o
 	$(CC) $(CFLAGS) $< $(LDFLAGS) -o $@
 
-obj/%.o : %.c
+obj/%.o : src/%.c
 	$(CC) $(CFLAGS) $< $(INCLUDES) -c -o $@
 
 clean:
