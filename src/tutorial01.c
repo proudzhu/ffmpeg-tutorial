@@ -17,6 +17,7 @@
 // to write the first five frames from "myvideofile.mpg" to disk in PPM
 // format.
 
+#include <libavutil/imgutils.h>
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
@@ -110,8 +111,8 @@ int main(int argc, char *argv[]) {
     return -1;
   
   // Determine required buffer size and allocate buffer
-  numBytes=avpicture_get_size(PIX_FMT_RGB24, pCodecCtx->width,
-			      pCodecCtx->height);
+  numBytes=av_image_get_buffer_size(AV_PIX_FMT_RGB24, pCodecCtx->width,
+			      pCodecCtx->height, 1);
   buffer=(uint8_t *)av_malloc(numBytes*sizeof(uint8_t));
 
   sws_ctx =
@@ -122,7 +123,7 @@ int main(int argc, char *argv[]) {
         pCodecCtx->pix_fmt,
         pCodecCtx->width,
         pCodecCtx->height,
-        PIX_FMT_RGB24,
+        AV_PIX_FMT_RGB24,
         SWS_BILINEAR,
         NULL,
         NULL,
@@ -132,8 +133,8 @@ int main(int argc, char *argv[]) {
   // Assign appropriate parts of buffer to image planes in pFrameRGB
   // Note that pFrameRGB is an AVFrame, but AVFrame is a superset
   // of AVPicture
-  avpicture_fill((AVPicture *)pFrameRGB, buffer, PIX_FMT_RGB24,
-		 pCodecCtx->width, pCodecCtx->height);
+  av_image_fill_arrays(pFrameRGB->data, pFrameRGB->linesize, buffer, AV_PIX_FMT_RGB24,
+		 pCodecCtx->width, pCodecCtx->height, 1);
   
   // Read frames and save first five frames to disk
   i=0;

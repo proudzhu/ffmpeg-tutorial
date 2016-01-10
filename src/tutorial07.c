@@ -539,7 +539,7 @@ int queue_picture(VideoState *is, AVFrame *pFrame, double pts) {
 
   VideoPicture *vp;
   //int dst_pix_fmt;
-  AVPicture pict;
+  AVFrame pict;
 
   /* wait until we have space for a new pic */
   SDL_LockMutex(is->pictq_mutex);
@@ -775,7 +775,7 @@ int stream_component_open(VideoState *is, int stream_index) {
             is->video_st->codec->pix_fmt,
             is->video_st->codec->width,
             is->video_st->codec->height,
-            PIX_FMT_YUV420P, 
+            AV_PIX_FMT_YUV420P, 
             SWS_BILINEAR, 
             NULL, 
             NULL, 

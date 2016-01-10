@@ -121,7 +121,7 @@ int main(int argc, char *argv[]) {
         pCodecCtx->pix_fmt,
         pCodecCtx->width,
         pCodecCtx->height,
-        PIX_FMT_YUV420P,
+        AV_PIX_FMT_YUV420P,
         SWS_BILINEAR,
         NULL,
         NULL,
@@ -141,7 +141,7 @@ int main(int argc, char *argv[]) {
       if(frameFinished) {
 	SDL_LockYUVOverlay(bmp);
 
-	AVPicture pict;
+	AVFrame pict;
 	pict.data[0] = bmp->pixels[0];
 	pict.data[1] = bmp->pixels[2];
 	pict.data[2] = bmp->pixels[1];
