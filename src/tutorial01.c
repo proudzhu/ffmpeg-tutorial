@@ -167,7 +167,7 @@ int main(int argc, char *argv[]) {
     }
     
     // Free the packet that was allocated by av_read_frame
-    av_free_packet(&packet);
+    av_packet_unref(&packet);
   }
   
   // Free the RGB image

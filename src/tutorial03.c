@@ -52,7 +52,7 @@ void packet_queue_init(PacketQueue *q) {
 int packet_queue_put(PacketQueue *q, AVPacket *pkt) {
 
   AVPacketList *pkt1;
-  if(av_dup_packet(pkt) < 0) {
+  if(av_packet_ref(pkt, pkt) < 0) {
     return -1;
   }
   pkt1 = av_malloc(sizeof(AVPacketList));
@@ -153,7 +153,7 @@ int audio_decode_frame(AVCodecContext *aCodecCtx, uint8_t *audio_buf, int buf_si
       return data_size;
     }
     if(pkt.data)
-      av_free_packet(&pkt);
+      av_packet_unref(&pkt);
 
     if(quit) {
       return -1;
@@ -378,12 +378,12 @@ int main(int argc, char *argv[]) {
 	rect.w = pCodecCtx->width;
 	rect.h = pCodecCtx->height;
 	SDL_DisplayYUVOverlay(bmp, &rect);
-	av_free_packet(&packet);
+	av_packet_unref(&packet);
       }
     } else if(packet.stream_index==audioStream) {
       packet_queue_put(&audioq, &packet);
     } else {
-      av_free_packet(&packet);
+      av_packet_unref(&packet);
     }
     // Free the packet that was allocated by av_read_frame
     SDL_PollEvent(&event);

@@ -126,7 +126,7 @@ void packet_queue_init(PacketQueue *q) {
 int packet_queue_put(PacketQueue *q, AVPacket *pkt) {
 
   AVPacketList *pkt1;
-  if(pkt != &flush_pkt && av_dup_packet(pkt) < 0) {
+  if(pkt != &flush_pkt && av_packet_ref(pkt, pkt) < 0) {
     return -1;
   }
   pkt1 = av_malloc(sizeof(AVPacketList));
@@ -190,7 +190,7 @@ static void packet_queue_flush(PacketQueue *q) {
   SDL_LockMutex(q->mutex);
   for(pkt = q->first_pkt; pkt != NULL; pkt = pkt1) {
     pkt1 = pkt->next;
-    av_free_packet(&pkt->pkt);
+    av_packet_unref(&pkt->pkt);
     av_freep(&pkt);
   }
   q->last_pkt = NULL;
@@ -339,7 +339,7 @@ int audio_decode_frame(VideoState *is, double *pts_ptr) {
       return data_size;
     }
     if(pkt->data)
-      av_free_packet(pkt);
+      av_packet_unref(pkt);
 
     if(is->quit) {
       return -1;
@@ -698,7 +698,7 @@ int video_thread(void *arg) {
 	break;
       }
     }
-    av_free_packet(packet);
+    av_packet_unref(packet);
   }
   av_free(pFrame);
   return 0;
@@ -906,7 +906,7 @@ int decode_thread(void *arg) {
     } else if(packet->stream_index == is->audioStream) {
       packet_queue_put(&is->audioq, packet);
     } else {
-      av_free_packet(packet);
+      av_packet_unref(packet);
     }
   }
   /* all done - wait for it */
