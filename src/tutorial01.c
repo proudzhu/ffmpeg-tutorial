@@ -49,18 +49,19 @@ void SaveFrame(AVFrame *pFrame, int width, int height, int iFrame) {
 int main(int argc, char *argv[]) {
   AVFormatContext *pFormatCtx = NULL;
   int             i, videoStream;
-  AVCodecContext  *pCodecCtx = NULL;
+  AVCodecContext     *pCodecCtx = NULL;
   AVCodec         *pCodec = NULL;
   AVFrame         *pFrame = NULL; 
   AVFrame         *pFrameRGB = NULL;
   AVPacket        packet;
   int             frameFinished;
+  int             ret;
   int             numBytes;
   uint8_t         *buffer = NULL;
 
   AVDictionary    *optionsDict = NULL;
   struct SwsContext      *sws_ctx = NULL;
-  
+
   if(argc < 2) {
     printf("Please provide a movie file\n");
     return -1;
@@ -82,7 +83,7 @@ int main(int argc, char *argv[]) {
   // Find the first video stream
   videoStream=-1;
   for(i=0; i<pFormatCtx->nb_streams; i++)
-    if(pFormatCtx->streams[i]->codec->codec_type==AVMEDIA_TYPE_VIDEO) {
+    if(pFormatCtx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_VIDEO) {
       videoStream=i;
       break;
     }
@@ -90,8 +91,15 @@ int main(int argc, char *argv[]) {
     return -1; // Didn't find a video stream
   
   // Get a pointer to the codec context for the video stream
-  pCodecCtx=pFormatCtx->streams[videoStream]->codec;
-  
+  pCodecCtx=avcodec_alloc_context3(NULL);
+  if(!pCodecCtx)
+	return AVERROR(ENOMEM);
+
+  ret=avcodec_parameters_to_context(pCodecCtx, pFormatCtx->streams[videoStream]->codecpar);
+  if(ret<0)
+	return -1;
+  av_codec_set_pkt_timebase(pCodecCtx, pFormatCtx->streams[videoStream]->time_base);
+
   // Find the decoder for the video stream
   pCodec=avcodec_find_decoder(pCodecCtx->codec_id);
   if(pCodec==NULL) {

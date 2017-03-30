@@ -65,6 +65,7 @@ typedef struct VideoState {
   AVFormatContext *pFormatCtx;
   int             videoStream, audioStream;
   AVStream        *audio_st;
+  AVCodecContext  *audio_ctx;
   PacketQueue     audioq;
   uint8_t         audio_buf[(MAX_AUDIO_FRAME_SIZE * 3) / 2];
   unsigned int    audio_buf_size;
@@ -74,6 +75,7 @@ typedef struct VideoState {
   uint8_t         *audio_pkt_data;
   int             audio_pkt_size;
   AVStream        *video_st;
+  AVCodecContext  *video_ctx;
   PacketQueue     videoq;
 
   VideoPicture    pictq[VIDEO_PICTURE_QUEUE_SIZE];
@@ -171,7 +173,7 @@ int audio_decode_frame(VideoState *is) {
   for(;;) {
     while(is->audio_pkt_size > 0) {
       int got_frame = 0;
-      len1 = avcodec_decode_audio4(is->audio_st->codec, &is->audio_frame, &got_frame, pkt);
+      len1 = avcodec_decode_audio4(is->audio_ctx, &is->audio_frame, &got_frame, pkt);
       if(len1 < 0) {
 	/* if error, skip frame */
 	is->audio_pkt_size = 0;
@@ -183,9 +185,9 @@ int audio_decode_frame(VideoState *is) {
             av_samples_get_buffer_size
             (
                 NULL, 
-                is->audio_st->codec->channels,
+                is->audio_ctx->channels,
                 is->audio_frame.nb_samples,
-                is->audio_st->codec->sample_fmt,
+                is->audio_ctx->sample_fmt,
                 1
             );
           memcpy(is->audio_buf, is->audio_frame.data[0], data_size);
@@ -266,15 +268,15 @@ void video_display(VideoState *is) {
 
   vp = &is->pictq[is->pictq_rindex];
   if(vp->bmp) {
-    if(is->video_st->codec->sample_aspect_ratio.num == 0) {
+    if(is->video_st->codecpar->sample_aspect_ratio.num == 0) {
       aspect_ratio = 0;
     } else {
-      aspect_ratio = av_q2d(is->video_st->codec->sample_aspect_ratio) *
-	is->video_st->codec->width / is->video_st->codec->height;
+      aspect_ratio = av_q2d(is->video_st->codecpar->sample_aspect_ratio) *
+	is->video_st->codecpar->width / is->video_st->codecpar->height;
     }
     if(aspect_ratio <= 0.0) {
-      aspect_ratio = (float)is->video_st->codec->width /
-	(float)is->video_st->codec->height;
+      aspect_ratio = (float)is->video_st->codecpar->width /
+	(float)is->video_st->codecpar->height;
     }
     h = screen->h;
     w = ((int)rint(h * aspect_ratio)) & -3;
@@ -341,12 +343,12 @@ void alloc_picture(void *userdata) {
     SDL_FreeYUVOverlay(vp->bmp);
   }
   // Allocate a place to put our YUV image on that screen
-  vp->bmp = SDL_CreateYUVOverlay(is->video_st->codec->width,
-				 is->video_st->codec->height,
+  vp->bmp = SDL_CreateYUVOverlay(is->video_st->codecpar->width,
+				 is->video_st->codecpar->height,
 				 SDL_YV12_OVERLAY,
 				 screen);
-  vp->width = is->video_st->codec->width;
-  vp->height = is->video_st->codec->height;
+  vp->width = is->video_st->codecpar->width;
+  vp->height = is->video_st->codecpar->height;
   
   SDL_LockMutex(is->pictq_mutex);
   vp->allocated = 1;
@@ -376,8 +378,8 @@ int queue_picture(VideoState *is, AVFrame *pFrame) {
 
   /* allocate or resize the buffer! */
   if(!vp->bmp ||
-     vp->width != is->video_st->codec->width ||
-     vp->height != is->video_st->codec->height) {
+     vp->width != is->video_st->codecpar->width ||
+     vp->height != is->video_st->codecpar->height) {
     SDL_Event event;
 
     vp->allocated = 0;
@@ -419,7 +421,7 @@ int queue_picture(VideoState *is, AVFrame *pFrame) {
         (uint8_t const * const *)pFrame->data,
         pFrame->linesize,
         0, 
-        is->video_st->codec->height, 
+        is->video_st->codecpar->height, 
         pict.data, 
         pict.linesize
     );
@@ -450,7 +452,7 @@ int video_thread(void *arg) {
       break;
     }
     // Decode video frame
-    avcodec_decode_video2(is->video_st->codec, pFrame, &frameFinished, 
+    avcodec_decode_video2(is->video_ctx, pFrame, &frameFinished, 
 				packet);
 
     // Did we get a video frame?
@@ -472,13 +474,21 @@ int stream_component_open(VideoState *is, int stream_index) {
   AVCodec *codec = NULL;
   AVDictionary *optionsDict = NULL;
   SDL_AudioSpec wanted_spec, spec;
+  int ret;
 
   if(stream_index < 0 || stream_index >= pFormatCtx->nb_streams) {
     return -1;
   }
 
   // Get a pointer to the codec context for the video stream
-  codecCtx = pFormatCtx->streams[stream_index]->codec;
+  codecCtx = avcodec_alloc_context3(NULL);
+  if(!codecCtx)
+	return AVERROR(ENOMEM);
+
+  ret = avcodec_parameters_to_context(codecCtx, pFormatCtx->streams[stream_index]->codecpar);
+  if(ret < 0)
+	goto fail;
+  av_codec_set_pkt_timebase(codecCtx, pFormatCtx->streams[stream_index]->time_base);
 
   if(codecCtx->codec_type == AVMEDIA_TYPE_AUDIO) {
     // Set audio settings from codec info
@@ -505,6 +515,7 @@ int stream_component_open(VideoState *is, int stream_index) {
   case AVMEDIA_TYPE_AUDIO:
     is->audioStream = stream_index;
     is->audio_st = pFormatCtx->streams[stream_index];
+	is->audio_ctx = codecCtx;
     is->audio_buf_size = 0;
     is->audio_buf_index = 0;
     memset(&is->audio_pkt, 0, sizeof(is->audio_pkt));
@@ -514,17 +525,18 @@ int stream_component_open(VideoState *is, int stream_index) {
   case AVMEDIA_TYPE_VIDEO:
     is->videoStream = stream_index;
     is->video_st = pFormatCtx->streams[stream_index];
+	is->video_ctx = codecCtx;
     
     packet_queue_init(&is->videoq);
     is->video_tid = SDL_CreateThread(video_thread, is);
     is->sws_ctx =
         sws_getContext
         (
-            is->video_st->codec->width,
-            is->video_st->codec->height,
-            is->video_st->codec->pix_fmt,
-            is->video_st->codec->width,
-            is->video_st->codec->height,
+            is->video_ctx->width,
+            is->video_ctx->height,
+            is->video_ctx->pix_fmt,
+            is->video_ctx->width,
+            is->video_ctx->height,
             AV_PIX_FMT_YUV420P, 
             SWS_BILINEAR, 
             NULL, 
@@ -535,6 +547,12 @@ int stream_component_open(VideoState *is, int stream_index) {
   default:
     break;
   }
+  goto out;
+
+fail:
+  avcodec_free_context(&codecCtx);
+
+out:
   return 0;
 }
 
@@ -584,11 +602,11 @@ int decode_thread(void *arg) {
   // Find the first video stream
 
   for(i=0; i<pFormatCtx->nb_streams; i++) {
-    if(pFormatCtx->streams[i]->codec->codec_type==AVMEDIA_TYPE_VIDEO &&
+    if(pFormatCtx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_VIDEO &&
        video_index < 0) {
       video_index=i;
     }
-    if(pFormatCtx->streams[i]->codec->codec_type==AVMEDIA_TYPE_AUDIO &&
+    if(pFormatCtx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_AUDIO &&
        audio_index < 0) {
       audio_index=i;
     }

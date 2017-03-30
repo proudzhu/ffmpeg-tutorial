@@ -207,6 +207,7 @@ int main(int argc, char *argv[]) {
   AVFrame         *pFrame = NULL; 
   AVPacket        packet;
   int             frameFinished;
+  int             ret;
   //float           aspect_ratio;
   
   AVCodecContext  *aCodecCtx = NULL;
@@ -249,11 +250,11 @@ int main(int argc, char *argv[]) {
   videoStream=-1;
   audioStream=-1;
   for(i=0; i<pFormatCtx->nb_streams; i++) {
-    if(pFormatCtx->streams[i]->codec->codec_type==AVMEDIA_TYPE_VIDEO &&
+    if(pFormatCtx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_VIDEO &&
        videoStream < 0) {
       videoStream=i;
     }
-    if(pFormatCtx->streams[i]->codec->codec_type==AVMEDIA_TYPE_AUDIO &&
+    if(pFormatCtx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_AUDIO &&
        audioStream < 0) {
       audioStream=i;
     }
@@ -289,7 +290,14 @@ int main(int argc, char *argv[]) {
   SDL_PauseAudio(0);
 
   // Get a pointer to the codec context for the video stream
-  pCodecCtx=pFormatCtx->streams[videoStream]->codec;
+  pCodecCtx=avcodec_alloc_context3(NULL);
+  if(!pCodecCtx)
+	return AVERROR(ENOMEM);
+
+  ret=avcodec_parameters_to_context(pCodecCtx, pFormatCtx->streams[videoStream]->codecpar);
+  if(ret<0)
+	return -1;
+  av_codec_set_pkt_timebase(pCodecCtx, pFormatCtx->streams[videoStream]->time_base);
   
   // Find the decoder for the video stream
   pCodec=avcodec_find_decoder(pCodecCtx->codec_id);
