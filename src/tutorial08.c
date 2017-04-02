@@ -761,7 +761,7 @@ int our_get_buffer(struct AVCodecContext *c, AVFrame *pic, int flags) {
 int video_thread(void *arg) {
   VideoState *is = (VideoState *)arg;
   AVPacket pkt1, *packet = &pkt1;
-  int frameFinished;
+  int ret;
   AVFrame *pFrame;
   double pts;
 
@@ -781,9 +781,14 @@ int video_thread(void *arg) {
     // Save global pts to be stored in pFrame in first call
     global_video_pkt_pts = packet->pts;
     // Decode video frame
-    avcodec_decode_video2(is->video_ctx, pFrame, &frameFinished, 
-				packet);
-    if(packet->dts == AV_NOPTS_VALUE
+    //avcodec_decode_video2(is->video_ctx, pFrame, &frameFinished, 
+	//			packet);
+	ret = avcodec_send_packet(is->video_ctx, packet);
+	if (ret < 0) {
+	    av_log(NULL, AV_LOG_ERROR, "Error while sending a packet to the decoder\n");
+		break;
+	}
+    if(packet->dts == AV_NOPTS_VALUE 
        && pFrame->opaque && *(uint64_t*)pFrame->opaque != AV_NOPTS_VALUE) {
       pts = *(uint64_t *)pFrame->opaque;
     } else if(packet->dts != AV_NOPTS_VALUE) {
@@ -794,12 +799,23 @@ int video_thread(void *arg) {
     pts *= av_q2d(is->video_st->time_base);
 
     // Did we get a video frame?
-    if(frameFinished) {
+    while (ret >= 0) {
+		ret = avcodec_receive_frame(is->video_ctx, pFrame);
+		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+			break;
+		} else if (ret < 0) {
+			av_log(NULL, AV_LOG_ERROR, "Error while receiving a frame from the decoder\n");
+			goto end;
+		}
+
+		if (ret >= 0) {
       pts = synchronize_video(is, pFrame, pts);
-      if(queue_picture(is, pFrame, pts) < 0) {
-	break;
-      }
-    }
+            if(queue_picture(is, pFrame, pts) < 0) {
+	              break;
+            }
+        }
+	}
+end:
     av_packet_unref(packet);
   }
   av_free(pFrame);

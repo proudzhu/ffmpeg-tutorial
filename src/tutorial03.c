@@ -206,7 +206,6 @@ int main(int argc, char *argv[]) {
   AVCodec         *pCodec = NULL;
   AVFrame         *pFrame = NULL; 
   AVPacket        packet;
-  int             frameFinished;
   int             ret;
   //float           aspect_ratio;
   
@@ -264,7 +263,16 @@ int main(int argc, char *argv[]) {
   if(audioStream==-1)
     return -1;
    
-  aCodecCtx=pFormatCtx->streams[audioStream]->codec;
+  aCodecCtx=avcodec_alloc_context3(NULL);
+  if(!aCodecCtx)
+	  return AVERROR(ENOMEM);
+
+  ret=avcodec_parameters_to_context(aCodecCtx, pFormatCtx->streams[audioStream]->codecpar);
+  if(ret<0)
+	  return -1;
+
+  av_codec_set_pkt_timebase(aCodecCtx, pFormatCtx->streams[audioStream]->time_base);
+
   // Set audio settings from codec info
   wanted_spec.freq = aCodecCtx->sample_rate;
   wanted_spec.format = AUDIO_S16SYS;
@@ -351,11 +359,23 @@ int main(int argc, char *argv[]) {
     // Is this a packet from the video stream?
     if(packet.stream_index==videoStream) {
       // Decode video frame
-      avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, 
-			   &packet);
+	  ret = avcodec_send_packet(pCodecCtx, &packet);
+	  if (ret < 0) {
+		  av_log(NULL, AV_LOG_ERROR, "Error while sending a packet to the decoder\n");
+		  break;
+	  }
       
       // Did we get a video frame?
-      if(frameFinished) {
+      while (ret >= 0) {
+		  ret = avcodec_receive_frame(pCodecCtx, pFrame);
+		  if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+			  break;
+		  } else if (ret < 0) {
+			  av_log(NULL, AV_LOG_ERROR, "Error while receiving a frame from the decoder\n");
+			  goto end;
+		  }
+
+		  if (ret >= 0) {
 	SDL_LockYUVOverlay(bmp);
 
 	AVFrame pict;
@@ -388,6 +408,7 @@ int main(int argc, char *argv[]) {
 	SDL_DisplayYUVOverlay(bmp, &rect);
 	av_packet_unref(&packet);
       }
+    }
     } else if(packet.stream_index==audioStream) {
       packet_queue_put(&audioq, &packet);
     } else {
@@ -406,7 +427,8 @@ int main(int argc, char *argv[]) {
     }
 
   }
-
+  
+end:
   // Free the YUV frame
   av_free(pFrame);
   

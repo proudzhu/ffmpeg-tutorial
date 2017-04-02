@@ -35,7 +35,6 @@ int main(int argc, char *argv[]) {
   AVCodec         *pCodec = NULL;
   AVFrame         *pFrame = NULL; 
   AVPacket        packet;
-  int             frameFinished;
   int             ret;
   //float           aspect_ratio;
 
@@ -142,11 +141,23 @@ int main(int argc, char *argv[]) {
     // Is this a packet from the video stream?
     if(packet.stream_index==videoStream) {
       // Decode video frame
-      avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, 
-			   &packet);
+	  ret = avcodec_send_packet(pCodecCtx, &packet);
+	  if (ret < 0) {
+		  av_log(NULL, AV_LOG_ERROR, "Error while sending a packet to the decoder\n");
+		  break;
+	  }
       
       // Did we get a video frame?
-      if(frameFinished) {
+      while (ret >= 0) {
+		  ret = avcodec_receive_frame(pCodecCtx, pFrame);
+		  if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+			  break;
+		  } else if (ret < 0) {
+			  av_log(NULL, AV_LOG_ERROR, "Error while receiving a frame from the decoder\n");
+			  goto end;
+		  }
+
+		  if (ret >= 0) {
 	SDL_LockYUVOverlay(bmp);
 
 	AVFrame pict;
@@ -180,6 +191,7 @@ int main(int argc, char *argv[]) {
       
       }
     }
+	}
     
     // Free the packet that was allocated by av_read_frame
     av_packet_unref(&packet);
@@ -192,9 +204,9 @@ int main(int argc, char *argv[]) {
     default:
       break;
     }
-
   }
   
+end:
   // Free the YUV frame
   av_free(pFrame);
   
